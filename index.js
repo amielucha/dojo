@@ -1,27 +1,28 @@
-const axios = require("axios").default;
-const axiosCookieJarSupport = require("axios-cookiejar-support").default;
-const tough = require("tough-cookie");
-const fs = require("fs");
-const Path = require("path");
-const moment = require("moment");
-const mkdirp = require("mkdirp");
-const { RateLimit } = require("async-sema");
-require("dotenv").config()
+import axios from "axios";
+import { CookieJar } from "tough-cookie";
+import { wrapper } from 'axios-cookiejar-support';
+import fs from "fs";
+import Path from "path";
+import { mkdirp } from "mkdirp";
+import { RateLimit } from "async-sema";
+import dotenv from "dotenv";
+import { fileURLToPath } from 'url';
+dotenv.config();
 
-// install cookie jar
-axiosCookieJarSupport(axios);
-const cookieJar = new tough.CookieJar();
-axios.defaults.jar = cookieJar;
-axios.defaults.withCredentials = true;
+const __dirname = Path.dirname(fileURLToPath(import.meta.url));
+
+const cookieJar = new CookieJar();
+const client = wrapper(axios.create({ jar: cookieJar, withCredentials: true }));
 
 const LOGIN_URL = "https://home.classdojo.com/api/session";
-const FEED_URL = "https://home.classdojo.com/api/storyFeed?includePrivate=true";
+const FEED_BASE_URL = "https://home.classdojo.com/api/storyFeed?includePrivate=true";
 
 const IMAGE_DIR = "images";
-const DATE_FORMAT = "YYYY-MM-DD";
+const VIDEO_DIR = "videos";
 const MAX_FEEDS = 30;
 const CONCURRENCY = 15;
 const LIMITER = RateLimit(CONCURRENCY);
+const STUDENTS = process.env.STUDENTS ? process.env.STUDENTS.split(',') : [];
 
 let feedsProcessed = 0;
 
@@ -33,10 +34,18 @@ async function main() {
         process.exit();
     }
 
-    try {
-        await processFeed(FEED_URL);
-    } catch (error) {
-        console.log("Couldn't get feed", error);
+    while (feedsProcessed < MAX_FEEDS) {
+        for (const studentId of STUDENTS) {
+            const studentFeedUrl = `${FEED_BASE_URL}&studentId=${studentId}`;
+
+            console.log(`processing feed for student ${studentId}: ${studentFeedUrl}...`);
+            try {
+                await processFeed(studentFeedUrl, studentId);
+            } catch (error) {
+                console.error(`Couldn't process feed for student ${studentId}`, error);
+            }
+        }
+        feedsProcessed++;
     }
 }
 
@@ -50,7 +59,7 @@ async function login() {
         }
     }
 
-    return await axios.post(LOGIN_URL, {
+    return await client.post(LOGIN_URL, {
         login: process.env.DOJO_EMAIL,
         password: process.env.DOJO_PASSWORD,
         resumeAddClassFlow: false
@@ -58,11 +67,11 @@ async function login() {
 }
 
 async function getFeed(url) {
-    const storyFeed = await axios.get(url);
+    const storyFeed = await client.get(url);
     return storyFeed.data;
 }
 
-async function processFeed(url) {
+async function processFeed(url, studentId) {
     const feed = await getFeed(url);
 
     feedsProcessed++;
@@ -70,20 +79,22 @@ async function processFeed(url) {
 
     for (const item of feed._items) {
         const time = item.time;
-        const date = moment(time).format(DATE_FORMAT);
-        
+        const date = new Date(time).toISOString().split("T")[0];
+
         const contents = item.contents;
         const attachments = contents.attachments;
 
         if (attachments === undefined || attachments.length == 0) {
-            //No files to download
+            // No files to download
             continue;
         }
-        await createDirectory(Path.resolve(__dirname, IMAGE_DIR, date));
+
+        // TODO: what if we don't have studentId?
+        await createDirectory(Path.resolve(__dirname, IMAGE_DIR, studentId, date));
 
         for (const attachment of attachments) {
             const url = attachment.path;
-            const filename = getFilePath(date, url.substring(url.lastIndexOf("/") + 1));
+            const filename = getFilePath(date, url.substring(url.lastIndexOf("/") + 1), studentId);
 
             await LIMITER();
             downloadFileIfNotExists(url, filename);
@@ -98,7 +109,7 @@ async function processFeed(url) {
         console.log(`found previous link ${previousLink}`);
 
         try {
-            await processFeed(previousLink);
+            await processFeed(previousLink, studentId);
         } catch (error) {
             console.error("Couldn't get feed", error);
         }
@@ -135,15 +146,15 @@ async function fileExists(filePath) {
     });
 }
 
-function getFilePath(date, filename) {
-    return Path.resolve(__dirname, IMAGE_DIR, date, filename);
+function getFilePath(date, filename, studentId) {
+    return Path.resolve(__dirname, IMAGE_DIR, studentId, date, filename);
 }
 
 async function downloadFile(url, filePath) {
-    console.log(`about to download ${filePath}...`)  
+    console.log(`about to download ${filePath}...`)
     const writer = fs.createWriteStream(filePath);
 
-    const response = await axios.get(url, {
+    const response = await client.get(url, {
         responseType: "stream"
     });
 
@@ -153,8 +164,8 @@ async function downloadFile(url, filePath) {
         writer.on("finish", () => {
             console.log(`finished downloading ${filePath}`);
             resolve();
-        })
-        writer.on("error", reject)
+        });
+        writer.on("error", reject);
     });
 }
 
