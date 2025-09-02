@@ -26,9 +26,8 @@ const VIDEO_DIR = "videos";
 const MAX_FEEDS = 30;
 const CONCURRENCY = 15;
 const LIMITER = RateLimit(CONCURRENCY);
-const STUDENTS = process.env.STUDENTS ? process.env.STUDENTS.split(',') : [];
-
-let feedsProcessed = 0;
+const STUDENTS = process.env.STUDENTS ? 
+    process.env.STUDENTS.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
 
 async function main() {
     try {
@@ -38,19 +37,37 @@ async function main() {
         process.exit();
     }
 
-    while (feedsProcessed < MAX_FEEDS) {
-        for (const studentId of STUDENTS) {
-            const studentFeedUrl = `${FEED_BASE_URL}&studentId=${studentId}`;
+    if (STUDENTS.length === 0) {
+        console.error("No student IDs provided. Please set STUDENTS environment variable with comma-separated student IDs.");
+        console.error("Example: STUDENTS=627e5f7dbf4237ce230773a3,65956aabda9951efb1d0706a");
+        process.exit(1);
+    }
 
-            console.log(`processing feed for student ${studentId}: ${studentFeedUrl}...`);
-            try {
-                await processFeed(studentFeedUrl, studentId);
-            } catch (error) {
-                console.error(`Couldn't process feed for student ${studentId}`, error);
-            }
+    console.log(`Processing feeds for ${STUDENTS.length} student(s): ${STUDENTS.join(', ')}`);
+
+    for (const studentId of STUDENTS) {
+        console.log(`\n=== Processing student: ${studentId} ===`);
+        await processStudentFeeds(studentId);
+    }
+}
+
+async function processStudentFeeds(studentId) {
+    let feedsProcessed = 0;
+    
+    while (feedsProcessed < MAX_FEEDS) {
+        const studentFeedUrl = `${FEED_BASE_URL}&studentId=${studentId}`;
+        
+        console.log(`Processing feed ${feedsProcessed + 1}/${MAX_FEEDS} for student ${studentId}...`);
+        try {
+            await processFeed(studentFeedUrl, studentId);
+        } catch (error) {
+            console.error(`Couldn't process feed for student ${studentId}`, error);
+            break; // Stop processing this student if there's an error
         }
         feedsProcessed++;
     }
+    
+    console.log(`Completed processing ${feedsProcessed} feeds for student ${studentId}`);
 }
 
 async function login() {
@@ -78,7 +95,6 @@ async function getFeed(url) {
 async function processFeed(url, studentId) {
     const feed = await getFeed(url);
 
-    feedsProcessed++;
     console.log(`found ${feed._items.length} feed items...`);
 
     for (const item of feed._items) {
@@ -113,9 +129,9 @@ async function processFeed(url, studentId) {
     }
 
     console.log("-----------------------------------------------------------------------");
-    console.log(`finished processing feed, feedsProcessed = ${feedsProcessed} / ${MAX_FEEDS}`);
+    console.log(`finished processing feed for student ${studentId}`);
     console.log("-----------------------------------------------------------------------");
-    if (feedsProcessed < MAX_FEEDS && feed._links && feed._links.prev && feed._links.prev.href) {
+    if (feed._links && feed._links.prev && feed._links.prev.href) {
         const previousLink = feed._links.prev.href;
         console.log(`found previous link ${previousLink}`);
 
