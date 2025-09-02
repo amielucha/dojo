@@ -26,8 +26,6 @@ const VIDEO_DIR = "videos";
 const MAX_FEEDS = 30;
 const CONCURRENCY = 15;
 const LIMITER = RateLimit(CONCURRENCY);
-const STUDENTS = process.env.STUDENTS ? 
-    process.env.STUDENTS.split(',').map(id => id.trim()).filter(id => id.length > 0) : [];
 
 async function main() {
     try {
@@ -37,13 +35,12 @@ async function main() {
         process.exit();
     }
 
-    if (STUDENTS.length === 0) {
-        console.error("No student IDs provided. Please set STUDENTS environment variable with comma-separated student IDs.");
-        console.error("Example: STUDENTS=627e5f7dbf4237ce230773a3,65956aabda9951efb1d0706a");
-        process.exit(1);
+    const parentId = process.env.PARENT;
+    if (!parentId) {
+        throw new Error('PARENT not set in .env');
     }
 
-    let studentIds = await fetchAllStudents();
+    let studentIds = await fetchAllStudents(parentId);
     if (studentIds.length === 0) {
         console.error('No students found for parent. Exiting.');
         process.exit(1);
@@ -225,11 +222,7 @@ async function fetchStudentInfo(studentId) {
     }
 }
 
-async function fetchAllStudents() {
-    const parentId = process.env.PARENT;
-    if (!parentId) {
-        throw new Error('PARENT not set in .env');
-    }
+async function fetchAllStudents(parentId) {
     const url = `https://home.classdojo.com/api/parent/${parentId}/student`;
     try {
         const response = await client.get(url);
@@ -257,4 +250,3 @@ async function fetchAllStudents() {
 }
 
 main();
-
