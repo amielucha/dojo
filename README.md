@@ -1,25 +1,24 @@
 # Dojo
 
 ### Purpose
-This is a script that retrieves classdojo images since they don't offer a feature to download images from your story feed.
+This is a script that retrieves ClassDojo images since they don't offer a feature to download images from your story feed.
 
 ### Run instructions
 1. Create a `.env` file in the root of your project that has the following (with curly braces omitted):
 ```
 DOJO_EMAIL={YOUR_EMAIL_THAT_YOU_USE_TO_LOGIN_TO_CLASSDOJO}
 DOJO_PASSWORD={YOUR_PASSWORD_THAT_YOU_USE_TO_LOGIN_TO_CLASSDOJO}
-STUDENTS={STUDENT_ID_1,STUDENT_ID_2,STUDENT_ID_3}
+PARENT={YOUR_PARENT_ID}
 ```
 
-**Note:** The `STUDENTS` environment variable is required and should contain comma-separated student IDs. You can find these IDs in the ClassDojo URLs when viewing a student's profile.
-
-Example:
-```
-STUDENTS=627e5f7dbf4237ce230773a3,65956aabda9951efb1d0706a
-```
+**Note:** The `PARENT` environment variable is required and should contain your parent account's ID. You can find this ID in the ClassDojo URLs or API responses when logged in as a parent.
 
 2. `npm install`
 
 3. `npm start`
 
-Any assets that are scraped will go in an `images/` directory, organized by student ID and date.
+When you run the script, it will:
+- Log in to ClassDojo using your credentials
+- Fetch all students for the parent account
+- Display all available info for each student (ID, name, avatar, school, login URLs, etc)
+- Download and organize all images and videos for each student in an `images/` directory, organized by student ID and date.

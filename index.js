@@ -43,9 +43,13 @@ async function main() {
         process.exit(1);
     }
 
-    console.log(`Processing feeds for ${STUDENTS.length} student(s): ${STUDENTS.join(', ')}`);
-
-    for (const studentId of STUDENTS) {
+    let studentIds = await fetchAllStudents();
+    if (studentIds.length === 0) {
+        console.error('No students found for parent. Exiting.');
+        process.exit(1);
+    }
+    console.log(`Processing feeds for ${studentIds.length} student(s): ${studentIds.join(', ')}`);
+    for (const studentId of studentIds) {
         console.log(`\n=== Processing student: ${studentId} ===`);
         await processStudentFeeds(studentId);
     }
@@ -209,4 +213,48 @@ async function downloadFile(url, filePath, exifDate) {
     });
 }
 
+async function fetchStudentInfo(studentId) {
+    try {
+        const url = `https://home.classdojo.com/api/students/${studentId}`;
+        const response = await client.get(url);
+        console.log(`Student info for ${studentId}:`, response.data);
+        return response.data;
+    } catch (error) {
+        console.error(`Failed to fetch student info for ${studentId}:`, error.response ? error.response.data : error.message);
+        return null;
+    }
+}
+
+async function fetchAllStudents() {
+    const parentId = process.env.PARENT;
+    if (!parentId) {
+        throw new Error('PARENT not set in .env');
+    }
+    const url = `https://home.classdojo.com/api/parent/${parentId}/student`;
+    try {
+        const response = await client.get(url);
+        const students = response.data._items;
+        if (!Array.isArray(students)) {
+            console.error('Unexpected response for students:', response.data);
+            return [];
+        }
+        console.log(`\n=== Students for parent ${parentId} ===`);
+        students.forEach((student, idx) => {
+            console.log(`\n#${idx + 1}`);
+            console.log('ID:        ', student._id);
+            console.log('Name:      ', (student.firstName || '') + ' ' + (student.lastName || ''));
+            if (student.avatar) console.log('Avatar:    ', student.avatar);
+            if (student.schoolName) console.log('School:    ', student.schoolName);
+            if (student.loginUrl) console.log('Login URL: ', student.loginUrl);
+            if (student.shortLoginUrl) console.log('Short URL: ', student.shortLoginUrl);
+            // Print any other interesting fields
+        });
+        return students.map(s => s._id);
+    } catch (error) {
+        console.error('Failed to fetch students:', error.response ? error.response.data : error.message);
+        return [];
+    }
+}
+
 main();
+
