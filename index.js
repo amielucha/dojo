@@ -7,7 +7,11 @@ import { mkdirp } from "mkdirp";
 import { RateLimit } from "async-sema";
 import dotenv from "dotenv";
 import { fileURLToPath } from 'url';
+import { ExifTool } from 'exiftool-vendored';
+import { format } from 'date-fns';
+
 dotenv.config();
+const exiftool = new ExifTool();
 
 const __dirname = Path.dirname(fileURLToPath(import.meta.url));
 
@@ -79,7 +83,11 @@ async function processFeed(url, studentId) {
 
     for (const item of feed._items) {
         const time = item.time;
-        const date = new Date(time).toISOString().split("T")[0];
+        const date = time.split("T")[0];
+        const datetime = new Date(time);
+        const exifDate = format(datetime, "yyyy:MM:dd HH:mm:ss");
+
+        console.log(exifDate)
 
         const contents = item.contents;
         const attachments = contents.attachments;
@@ -94,10 +102,13 @@ async function processFeed(url, studentId) {
 
         for (const attachment of attachments) {
             const url = attachment.path;
-            const filename = getFilePath(date, url.substring(url.lastIndexOf("/") + 1), studentId);
+            // Extract filename from URL, removing query parameters
+            const urlPath = url.split('?')[0]; // Remove query parameters
+            const baseFilename = urlPath.substring(urlPath.lastIndexOf("/") + 1);
+            const filename = getFilePath(date, baseFilename, studentId);
 
             await LIMITER();
-            downloadFileIfNotExists(url, filename);
+            downloadFileIfNotExists(url, filename, exifDate);
         }
     }
 
@@ -117,18 +128,20 @@ async function processFeed(url, studentId) {
 }
 
 async function createDirectory(path) {
-    return new Promise((resolve, reject) => {
-        mkdirp.sync(path);
-        resolve();
-    });
+    try {
+        await mkdirp(path);
+        return Promise.resolve();
+    } catch (error) {
+        return Promise.reject(error);
+    }
 }
 
-async function downloadFileIfNotExists(url, filePath) {
+async function downloadFileIfNotExists(url, filePath, exifDate) {
     const exists = await fileExists(filePath);
     console.log(`file ${filePath} exists = ${exists}`);
     if (!exists) {
         try {
-            await downloadFile(url, filePath);
+            await downloadFile(url, filePath, exifDate);
         } catch (error) {
             console.error("Failed to download file ", url);
         }
@@ -150,7 +163,7 @@ function getFilePath(date, filename, studentId) {
     return Path.resolve(__dirname, IMAGE_DIR, studentId, date, filename);
 }
 
-async function downloadFile(url, filePath) {
+async function downloadFile(url, filePath, exifDate) {
     console.log(`about to download ${filePath}...`)
     const writer = fs.createWriteStream(filePath);
 
@@ -161,8 +174,19 @@ async function downloadFile(url, filePath) {
     response.data.pipe(writer);
 
     return new Promise((resolve, reject) => {
-        writer.on("finish", () => {
+        writer.on("finish", async () => {
             console.log(`finished downloading ${filePath}`);
+
+            try {
+                await exiftool.write(filePath, { DateTimeOriginal: exifDate });
+                console.log(`EXIF capture date added to ${filePath}`);
+            } catch (error) {
+                console.error(`Error adding EXIF capture date to ${filePath}`, error);
+                reject(error);
+                return;
+            }
+
+
             resolve();
         });
         writer.on("error", reject);
